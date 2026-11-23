@@ -1,12 +1,19 @@
 {
-  "name": "nextjs-postgresql-template",
+  "name": "botplayerok",
+  "version": "2.0.0",
   "private": true,
+  "description": "Автоматизация продаж на Playerok: авто-выдача, поднятие, восстановление, ИИ-автоответчик и живая статистика",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:studio": "drizzle-kit studio",
+    "test:smoke": "tsx scripts/smoke-test.ts",
+    "seed:demo": "node scripts/seed-demo.mjs"
   },
   "dependencies": {
     "dotenv": "17.3.1",
@@ -17,6 +24,8 @@
     "react-dom": "19.2.6"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.17",
+    "@electric-sql/pglite-socket": "^0.2.20",
     "@tailwindcss/postcss": "4.1.17",
     "@types/node": "22.19.15",
     "@types/pg": "8.18.0",
@@ -27,6 +36,7 @@
     "eslint-config-next": "16.4.2",
     "postcss": "8.5.23",
     "tailwindcss": "4.1.17",
+    "tsx": "^4.23.15",
     "typescript": "5.9.3"
   }
 }

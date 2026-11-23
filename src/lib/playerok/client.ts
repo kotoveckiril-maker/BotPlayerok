@@ -7,6 +7,8 @@ const GRAPHQL_URL = `${BASE_URL}/graphql`;
 const PQ = {
   deals: "591b0e6d036c2120c8f95b97dbfdf5635df3747cd901f4895e009935229417ef",
   deal: "d0421fb8dea49652876d69b1a14ce2c715ea9c7127c48c85a78e06de31a845ae",
+  transactions:
+    "63672f5d6b617b27fe213cd5dec566e4ee90df9ea79080b74c5e6b6e9d448568",
   userChats: "c1ddbcd7c8b87160ac25e0734f9dc32fc945287b056f4b14abf1473bfb1ad11a",
   chatMessages:
     "9b4e264ff1b20e0fd3929afe023dee8f50affc02b85f80cb4b3dc1516ecfbaa0",
@@ -44,7 +46,6 @@ export type ItemStatus =
   | "SOLD"
   | "DRAFT";
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
 type Json = any;
 
 export interface Deal {
@@ -52,9 +53,12 @@ export interface Deal {
   status: DealStatus;
   direction?: string;
   createdAt?: string;
+  completedAt?: string | null;
+  prevStatus?: string | null;
   user?: { id: string; username: string } | null;
   chat?: { id: string } | null;
-  item?: { id: string; name: string; price?: number } | null;
+  item?: { id: string; name: string; price?: number; slug?: string } | null;
+  transaction?: { value?: number; currency?: string } | null;
 }
 
 export interface ChatMessage {
@@ -83,7 +87,10 @@ export interface MyItem {
   priority?: string;
   priorityPosition?: number;
   viewsCounter?: number;
+  dealsCounter?: number;
+  likesCounter?: number;
   slug?: string;
+  createdAt?: string;
   statusExpirationDate?: string | null;
 }
 
@@ -276,6 +283,48 @@ export class PlayerokClient {
       showForbiddenImage: true,
     });
     return (data?.deals?.edges ?? []).map((e: Json) => e.node as Deal);
+  }
+
+  /** Несколько страниц сделок подряд (для синхронизации статистики). */
+  async getAllDeals(
+    statuses: DealStatus[],
+    direction: "IN" | "OUT" = "OUT",
+    maxPages = 4,
+  ): Promise<Deal[]> {
+    const out: Deal[] = [];
+    let after: string | null = null;
+    for (let i = 0; i < maxPages; i++) {
+      const data: Json = await this.persisted("deals", {
+        pagination: { first: 24, after },
+        filter: { userId: this.userId, direction, status: statuses },
+        showForbiddenImage: true,
+      });
+      const conn = data?.deals;
+      for (const e of conn?.edges ?? []) out.push(e.node as Deal);
+      if (!conn?.pageInfo?.hasNextPage) break;
+      after = conn.pageInfo.endCursor;
+    }
+    return out;
+  }
+
+  /** Транзакции кошелька (SELL — продажи, DEPOSIT — пополнения, WITHDRAW — выплаты). */
+  async getTransactions(count = 24): Promise<
+    {
+      id: string;
+      operation?: string;
+      direction?: string;
+      status?: string;
+      value?: number;
+      createdAt?: string;
+      provider?: { name?: string } | null;
+    }[]
+  > {
+    const data = await this.persisted("transactions", {
+      pagination: { first: count, after: null },
+      filter: { userId: this.userId },
+      hasSupportAccess: false,
+    });
+    return (data?.transactions?.edges ?? []).map((e: Json) => e.node ?? ({} as never));
   }
 
   async getDeal(id: string): Promise<Deal> {

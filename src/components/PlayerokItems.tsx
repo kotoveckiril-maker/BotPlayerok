@@ -11,6 +11,8 @@ interface Item {
   price: number;
   priority?: string;
   viewsCounter?: number;
+  dealsCounter?: number;
+  likesCounter?: number;
   slug?: string;
 }
 
@@ -101,7 +103,32 @@ export default function PlayerokItems({ goTo }: { goTo: (t: string) => void }) {
       )}
       {items && items.length === 0 && <p className="text-sm text-slate-500">Лотов нет.</p>}
       {items && items.length > 0 && (
-        <ul className="divide-y divide-white/5">
+        <>
+          <div className="mb-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+              <div className="text-[11px] text-slate-500">Всего лотов</div>
+              <div className="text-lg font-semibold text-white">{items.length}</div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+              <div className="text-[11px] text-slate-500">Активных</div>
+              <div className="text-lg font-semibold text-emerald-300">
+                {items.filter((i) => i.status === "APPROVED").length}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+              <div className="text-[11px] text-slate-500">Просмотров</div>
+              <div className="text-lg font-semibold text-white">
+                {items.reduce((a, i) => a + (i.viewsCounter ?? 0), 0).toLocaleString("ru-RU")}
+              </div>
+            </div>
+            <div className="rounded-xl border border-white/10 bg-slate-950/40 p-3">
+              <div className="text-[11px] text-slate-500">Продаж по лотам</div>
+              <div className="text-lg font-semibold text-sky-300">
+                {items.reduce((a, i) => a + (i.dealsCounter ?? 0), 0).toLocaleString("ru-RU")}
+              </div>
+            </div>
+          </div>
+          <ul className="divide-y divide-white/5">
           {items.map((it) => {
             const st = STATUS[it.status] ?? { label: it.status, tone: "slate" as const };
             const isLinked = linked.has(it.id);
@@ -113,7 +140,13 @@ export default function PlayerokItems({ goTo }: { goTo: (t: string) => void }) {
                     <Badge tone={st.tone}>{st.label}</Badge>
                     <span>{it.price} ₽</span>
                     {it.priority && <span>{it.priority}</span>}
-                    {typeof it.viewsCounter === "number" && <span>👁 {it.viewsCounter}</span>}
+                    {typeof it.viewsCounter === "number" && <span title="Просмотры">👁 {it.viewsCounter}</span>}
+                    {typeof it.dealsCounter === "number" && it.dealsCounter > 0 && (
+                      <span title="Продажи">🛒 {it.dealsCounter}</span>
+                    )}
+                    {typeof it.likesCounter === "number" && it.likesCounter > 0 && (
+                      <span title="Лайки">❤️ {it.likesCounter}</span>
+                    )}
                     <code className="text-slate-500">{it.id}</code>
                   </div>
                 </div>
@@ -139,7 +172,8 @@ export default function PlayerokItems({ goTo }: { goTo: (t: string) => void }) {
               </li>
             );
           })}
-        </ul>
+          </ul>
+        </>
       )}
     </Card>
   );

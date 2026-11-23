@@ -1,0 +1,19 @@
+# Пример Caddyfile для автоматического HTTPS.
+# Домен замените на свой. Caddy сам получит и продлит Let's Encrypt сертификат.
+#
+# Установка: https://caddyserver.com/docs/install
+# Запуск: caddy run --config Caddyfile
+
+bot.example.com {
+    encode gzip zstd
+    reverse_proxy 127.0.0.1:3000
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        -Server
+    }
+
+    log {
+        output file /var/log/caddy/botplayerok.log
+    }
+}

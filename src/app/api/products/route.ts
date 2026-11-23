@@ -1,11 +1,15 @@
 import { db } from "@/db";
 import { products, stockItems } from "@/db/schema";
+import { apiAuth } from "@/lib/auth";
 import { desc, sql } from "drizzle-orm";
 import { cleanProduct } from "@/lib/bot/product-utils";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const rows = await db.select().from(products).orderBy(desc(products.id));
   const counts = await db
     .select({
@@ -26,6 +30,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const data = cleanProduct(body);
   if (!data.title) {

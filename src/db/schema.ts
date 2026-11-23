@@ -1,5 +1,7 @@
 import {
   boolean,
+  date,
+  doublePrecision,
   index,
   integer,
   pgTable,
@@ -9,7 +11,11 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-/** Единственная строка (id = 1) с настройками бота. */
+/**
+ * Единственная строка (id = 1) с настройками бота.
+ * Секреты (токены, ключи) хранятся в зашифрованном виде (AES-256-GCM),
+ * см. src/lib/crypto.ts.
+ */
 export const settings = pgTable("settings", {
   id: integer("id").primaryKey().default(1),
 
@@ -23,6 +29,7 @@ export const settings = pgTable("settings", {
   // --- Общее ---
   botEnabled: boolean("bot_enabled").notNull().default(false),
   pollIntervalSec: integer("poll_interval_sec").notNull().default(15),
+  timezone: text("timezone").notNull().default("Europe/Moscow"),
 
   // --- Авто-выдача ---
   autoDelivery: boolean("auto_delivery").notNull().default(true),
@@ -43,6 +50,10 @@ export const settings = pgTable("settings", {
   restoreUnlinked: boolean("restore_unlinked").notNull().default(false),
   lastRestoreAt: timestamp("last_restore_at", { withTimezone: true }),
 
+  // --- Синхронизация сделок (для статистики) ---
+  syncDeals: boolean("sync_deals").notNull().default(true),
+  lastDealsSyncAt: timestamp("last_deals_sync_at", { withTimezone: true }),
+
   // --- ИИ автоответчик ---
   aiEnabled: boolean("ai_enabled").notNull().default(false),
   aiBaseUrl: text("ai_base_url").notNull().default("https://api.openai.com/v1"),
@@ -52,11 +63,23 @@ export const settings = pgTable("settings", {
   aiCooldownSec: integer("ai_cooldown_sec").notNull().default(20),
   aiHistoryLimit: integer("ai_history_limit").notNull().default(10),
   aiMaxAgeMin: integer("ai_max_age_min").notNull().default(60),
+  aiMaxTokens: integer("ai_max_tokens").notNull().default(400),
   aiSystemPrompt: text("ai_system_prompt")
     .notNull()
     .default(
       "Ты — вежливый помощник продавца на маркетплейсе Playerok. Отвечай покупателю кратко, дружелюбно и по делу, на языке покупателя. Используй только информацию из каталога товаров и инструкции ниже. Никогда не обещай возвраты, скидки и не называй сроки, если их нет в инструкции. Не проси и не принимай оплату вне Playerok, не переходи в сторонние мессенджеры. Если не можешь помочь или покупатель просит позвать продавца — ответь ровно: [HANDOFF]",
     ),
+
+  // --- Telegram-уведомления ---
+  tgBotToken: text("tg_bot_token").notNull().default(""),
+  tgChatId: text("tg_chat_id").notNull().default(""),
+  notifySales: boolean("notify_sales").notNull().default(true),
+  notifyErrors: boolean("notify_errors").notNull().default(true),
+  notifyLowStock: boolean("notify_low_stock").notNull().default(true),
+  lowStockThreshold: integer("low_stock_threshold").notNull().default(3),
+
+  // --- Пароль админки (scrypt-хэш) ---
+  adminPasswordHash: text("admin_password_hash").notNull().default(""),
 
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
@@ -111,6 +134,7 @@ export const deliveries = pgTable(
     }),
     itemName: text("item_name").notNull().default(""),
     buyer: text("buyer").notNull().default(""),
+    buyerId: text("buyer_id").notNull().default(""),
     chatId: text("chat_id").notNull().default(""),
     status: text("status").notNull().default("processing"), // processing | delivered | no_stock | failed
     delivered: text("delivered").notNull().default(""),
@@ -118,6 +142,9 @@ export const deliveries = pgTable(
     attempts: integer("attempts").notNull().default(0),
     confirmed: boolean("confirmed").notNull().default(false),
     confirmAttempts: integer("confirm_attempts").notNull().default(0),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    price: doublePrecision("price").notNull().default(0),
+    currency: text("currency").notNull().default("RUB"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -125,7 +152,42 @@ export const deliveries = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [uniqueIndex("deliveries_deal_uq").on(t.dealId)],
+  (t) => [
+    uniqueIndex("deliveries_deal_uq").on(t.dealId),
+    index("deliveries_created_idx").on(t.createdAt),
+  ],
+);
+
+/**
+ * Зеркала сделок Playerok — источник достоверной статистики продаж.
+ * Заполняется модулем syncDeals (см. src/lib/bot/deals.ts).
+ */
+export const deals = pgTable(
+  "deals",
+  {
+    id: text("id").primaryKey(), // ID сделки на Playerok
+    status: text("status").notNull(),
+    direction: text("direction").notNull().default("OUT"),
+    buyerId: text("buyer_id").notNull().default(""),
+    buyerUsername: text("buyer_username").notNull().default(""),
+    itemId: text("item_id").notNull().default(""),
+    itemName: text("item_name").notNull().default(""),
+    price: doublePrecision("price").notNull().default(0),
+    currency: text("currency").notNull().default("RUB"),
+    chatId: text("chat_id").notNull().default(""),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("deals_created_idx").on(t.createdAt),
+    index("deals_status_idx").on(t.status),
+    index("deals_item_idx").on(t.itemId),
+  ],
 );
 
 /** Состояние обработки чатов ИИ-автоответчиком. */
@@ -133,6 +195,22 @@ export const chatState = pgTable("chat_state", {
   chatId: text("chat_id").primaryKey(),
   lastMessageId: text("last_message_id").notNull().default(""),
   lastReplyAt: timestamp("last_reply_at", { withTimezone: true }),
+  replies: integer("replies").notNull().default(0),
+});
+
+/** Агрегированное использование ИИ по дням (для статистики и контроля расходов). */
+export const aiUsage = pgTable("ai_usage", {
+  day: date("day").primaryKey(),
+  model: text("model").notNull().default(""),
+  requests: integer("requests").notNull().default(0),
+  replies: integer("replies").notNull().default(0),
+  handoffs: integer("handoffs").notNull().default(0),
+  errors: integer("errors").notNull().default(0),
+  tokensIn: integer("tokens_in").notNull().default(0),
+  tokensOut: integer("tokens_out").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
 });
 
 export const logs = pgTable(

@@ -1,12 +1,16 @@
 import { db } from "@/db";
 import { stockItems } from "@/db/schema";
+import { apiAuth } from "@/lib/auth";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+export async function GET(req: Request, ctx: Ctx) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const { id } = await ctx.params;
   const rows = await db
     .select()
@@ -18,6 +22,9 @@ export async function GET(_req: Request, ctx: Ctx) {
 }
 
 export async function POST(req: Request, ctx: Ctx) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const { id } = await ctx.params;
   const { lines, separator } = (await req.json().catch(() => ({}))) as {
     lines?: string;
@@ -35,6 +42,9 @@ export async function POST(req: Request, ctx: Ctx) {
 }
 
 export async function DELETE(req: Request, ctx: Ctx) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const { id } = await ctx.params;
   const url = new URL(req.url);
   const stockId = url.searchParams.get("stockId");

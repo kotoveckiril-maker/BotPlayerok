@@ -2,7 +2,9 @@ import { db } from "@/db";
 import { deliveries, products, stockItems } from "@/db/schema";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import type { Deal, PlayerokClient } from "@/lib/playerok/client";
+import { markDealConfirmed } from "./deals";
 import { log } from "./log";
+import { notifyError, notifyNoStock, notifySale } from "./notify";
 import type { Settings } from "./settings";
 
 type Product = typeof products.$inferSelect;
@@ -106,6 +108,9 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
       continue;
     }
 
+    const price = Number(deal.item?.price) || 0;
+    const currency = deal.transaction?.currency || "RUB";
+
     // Захватываем сделку (защита от двойной выдачи)
     if (!prev) {
       const ins = await db
@@ -115,9 +120,12 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
           productId: product.id,
           itemName: deal.item?.name ?? "",
           buyer: deal.user?.username ?? "",
+          buyerId: deal.user?.id ?? "",
           chatId,
           status: "processing",
           attempts: 1,
+          price,
+          currency,
         })
         .onConflictDoNothing()
         .returning({ id: deliveries.id });
@@ -131,6 +139,9 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
           updatedAt: new Date(),
           productId: product.id,
           chatId,
+          price,
+          currency,
+          buyerId: deal.user?.id ?? prev.buyerId,
         })
         .where(
           and(
@@ -163,6 +174,7 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
             `Сделка ${deal.id}: на складе «${product.title}» нет товара! Пополните склад — выдача повторится автоматически`,
             { dedupeMs: 300_000 },
           );
+          void notifyNoStock(s, product.title, deal.id);
           continue;
         }
         data = claimed.content;
@@ -194,6 +206,7 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
         "delivery",
         `Сделка ${deal.id}: выдан «${product.title}» покупателю ${deal.user?.username ?? "?"}`,
       );
+      void notifySale(s, deal, product.title, price);
       done++;
     } catch (e) {
       if (claimed) await releaseStock(claimed.id);
@@ -203,6 +216,7 @@ export async function runDelivery(client: PlayerokClient, s: Settings) {
         .set({ status: "failed", error: msg.slice(0, 500), updatedAt: new Date() })
         .where(eq(deliveries.dealId, deal.id));
       await log("error", "delivery", `Сделка ${deal.id}: ошибка выдачи — ${msg}`);
+      void notifyError(s, "Ошибка выдачи товара", `Сделка ${deal.id}: ${msg}`);
     }
   }
   return done;
@@ -229,8 +243,9 @@ export async function runConfirm(client: PlayerokClient, _s: Settings) {
       await client.updateDeal(d.dealId, "SENT");
       await db
         .update(deliveries)
-        .set({ confirmed: true, updatedAt: new Date() })
+        .set({ confirmed: true, confirmedAt: new Date(), updatedAt: new Date() })
         .where(eq(deliveries.id, d.id));
+      void markDealConfirmed(d.dealId);
       await log("success", "confirm", `Сделка ${d.dealId}: подтверждена как выполненная`);
       n++;
     } catch (e) {
