@@ -1,3 +1,4 @@
+import { apiAuth, getSession } from "@/lib/auth";
 import { getSettings, patchSettings, publicSettings, type Settings } from "@/lib/bot/settings";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,10 @@ const BOOLS = [
   "restoreExpired",
   "restoreUnlinked",
   "aiEnabled",
+  "syncDeals",
+  "notifySales",
+  "notifyErrors",
+  "notifyLowStock",
 ] as const;
 
 const INTS: Record<string, [number, number]> = {
@@ -22,17 +27,25 @@ const INTS: Record<string, [number, number]> = {
   aiCooldownSec: [0, 3600],
   aiHistoryLimit: [1, 40],
   aiMaxAgeMin: [1, 10080],
+  aiMaxTokens: [50, 4000],
+  lowStockThreshold: [0, 100000],
 };
 
-const TEXTS = ["userAgent", "aiBaseUrl", "aiModel", "aiSystemPrompt"] as const;
+const TEXTS = ["userAgent", "aiBaseUrl", "aiModel", "aiSystemPrompt", "timezone", "tgChatId"] as const;
 // Секреты: пустое значение = не менять, "__clear__" = очистить
-const SECRETS = ["playerokToken", "playerokCookies", "aiApiKey"] as const;
+const SECRETS = ["playerokToken", "playerokCookies", "aiApiKey", "tgBotToken"] as const;
 
 export async function GET() {
+  if (!(await getSession())) {
+    return Response.json({ error: "Требуется вход в админку" }, { status: 401 });
+  }
   return Response.json(publicSettings(await getSettings()));
 }
 
 export async function PUT(req: Request) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const body = (await req.json().catch(() => ({}))) as Record<string, unknown>;
   const patch: Partial<Omit<Settings, "id">> = {};
   const p = patch as Record<string, unknown>;
@@ -50,6 +63,14 @@ export async function PUT(req: Request) {
     if (typeof v !== "string") continue;
     if (v === "__clear__") p[k] = "";
     else if (v.trim()) p[k] = v.trim().replace(/^token=/, "");
+  }
+
+  if (typeof p.timezone === "string" && p.timezone) {
+    try {
+      new Intl.DateTimeFormat("en-CA", { timeZone: p.timezone });
+    } catch {
+      return Response.json({ error: `Неизвестный часовой пояс: ${p.timezone}` }, { status: 400 });
+    }
   }
   if (p.playerokToken !== undefined || p.playerokCookies !== undefined) {
     p.accountUsername = "";

@@ -1,3 +1,4 @@
+import { apiAuth } from "@/lib/auth";
 import { createClient } from "@/lib/bot/engine";
 import { raiseOne, restoreOne } from "@/lib/bot/items";
 import { getSettings } from "@/lib/bot/settings";
@@ -15,7 +16,9 @@ const ALL: ItemStatus[] = [
   "DRAFT",
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
   try {
     const s = await getSettings();
     const client = createClient(s);
@@ -28,6 +31,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await apiAuth(req);
+  if (auth) return auth;
+
   const { action, itemId } = (await req.json().catch(() => ({}))) as {
     action?: "raise" | "restore";
     itemId?: string;

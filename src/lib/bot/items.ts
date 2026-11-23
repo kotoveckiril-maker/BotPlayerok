@@ -75,7 +75,8 @@ export async function restoreOne(
 }
 
 export async function runRaise(client: PlayerokClient, s: Settings) {
-  const items = await client.getMyItems(["APPROVED"], 5);
+  // Ограничиваем страницу, чтобы цикл не блокировал выдачу слишком долго.
+  const items = await client.getMyItems(["APPROVED"], 2);
   let n = 0;
   for (const it of items) {
     try {
@@ -87,7 +88,7 @@ export async function runRaise(client: PlayerokClient, s: Settings) {
         `«${it.name}»: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-    await sleep(700);
+    await sleep(500);
   }
   if (!items.length) await log("info", "raise", "Нет активных товаров для поднятия", { dedupeMs: 3_600_000 });
   return n;
@@ -99,7 +100,7 @@ export async function runRestore(client: PlayerokClient, s: Settings) {
   if (s.restoreExpired) statuses.push("EXPIRED");
   if (!statuses.length) return 0;
 
-  const items = await client.getMyItems(statuses, 3);
+  const items = await client.getMyItems(statuses, 2);
   if (!items.length) return 0;
 
   const prods = await db.select().from(products).where(eq(products.enabled, true));
@@ -137,7 +138,7 @@ export async function runRestore(client: PlayerokClient, s: Settings) {
         { dedupeMs: 600_000 },
       );
     }
-    await sleep(1000);
+    await sleep(700);
   }
   return n;
 }

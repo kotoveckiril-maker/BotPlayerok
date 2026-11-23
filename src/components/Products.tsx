@@ -211,7 +211,7 @@ function ProductCard({
         </div>
         <div className="flex items-center gap-2">
           {p.mode === "unit" && (
-            <Badge tone={p.available > 0 ? "green" : "red"}>
+            <Badge tone={p.available > 0 ? (p.available <= 3 ? "amber" : "green") : "red"}>
               на складе: {p.available}
             </Badge>
           )}
